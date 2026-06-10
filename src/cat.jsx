@@ -4,6 +4,19 @@ import { cursorPosition } from "@tauri-apps/api/window";
 
 function App() {
   const canvasRef = useRef(null);
+  const isBlinkingRef = useRef(false);
+
+  useEffect(() => {
+      const blinkInterval = setInterval(() => {
+        isBlinkingRef.current = true;
+        setTimeout(() => { isBlinkingRef.current = false; }, 200);
+      }, 5000);
+
+      return () => {
+        clearInterval(blinkInterval);
+      };
+    }, []);
+  
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -54,6 +67,7 @@ function App() {
 
     appWindow.setIgnoreCursorEvents(true);
     let running = true;
+    let lastTime = null;
     let lastIgnore = null;
     let rafId = null;
 
@@ -98,8 +112,6 @@ function App() {
       setTimeout(updateIgnore, 32);
     };
 
-    let lastTime = null;
-
     const render = (timestamp) => {
       if (!running) return;
 
@@ -110,7 +122,7 @@ function App() {
       // We clamp the movement so it never strays too far off the body's grid.
       // Dividing by 35 makes it less sensitive, clamping to 0.75 makes it stop sooner.
       const targetHeadX = Math.max(-0.75, Math.min(0.75, (localX - 62.5) / 35));
-      const targetHeadY = Math.max(-0.50, Math.min(0.75, (localY - 62.5) / 35));
+      const targetHeadY = Math.max(0, Math.min(0.75, (localY - 62.5) / 35));
       
       const targetPupilX = Math.max(-0.7, Math.min(0.7, (localX - 62.5) / 30));
       const targetPupilY = Math.max(-0.7, Math.min(0.7, (localY - 62.5) / 30));
@@ -138,6 +150,7 @@ function App() {
           if (colorIndex === 0) continue;
 
           const isBody = row >= 16;
+          const isEyeRegion = (row >= 9 && row <= 12) && ((col >= 11 && col <= 14) || (col >= 17 && col <= 20));
           const isPupil =
             (row === 10 || row === 11) &&
             [12, 13, 18, 19].includes(col) &&
@@ -152,7 +165,16 @@ function App() {
               pixelSize,
             );
           } else {
-            if (isPupil) {
+            if (isBlinkingRef.current && isEyeRegion) {
+              ctx.fillStyle = "#000000";
+              ctx.fillRect(
+                offsetX + col * pixelSize + headRenderX,
+                offsetY + row * pixelSize + headRenderY,
+                pixelSize,
+                pixelSize,
+              );
+            }
+            else if (isPupil) {
               ctx.fillStyle = "#e9e9e9";
               ctx.fillRect(
                 offsetX + col * pixelSize + headRenderX,
@@ -183,7 +205,17 @@ function App() {
           pixelSize,
         );
       }
-
+      if (!isBlinkingRef.current) {
+        ctx.fillStyle = "#000000";
+        for (const p of deferredPupils) {
+          ctx.fillRect(
+            offsetX + p.col * pixelSize + headRenderX + pupilRenderX,
+            offsetY + p.row * pixelSize + headRenderY + pupilRenderY,
+            pixelSize,
+            pixelSize,
+          );
+        }
+      }
       rafId = requestAnimationFrame(render);
     };
 
