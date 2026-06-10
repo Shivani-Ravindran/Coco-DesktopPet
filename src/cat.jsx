@@ -461,8 +461,11 @@ function App() {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const appWindow = getCurrentWindow();
 
+    let isMouseDownOnCat = false;
+
     const handleMouseDown = async (e) => {
       if (e.button === 0) {
+        isMouseDownOnCat = true; // Synchronously pause hit-test updates
         try {
           await appWindow.startDragging();
         } catch (err) {
@@ -471,7 +474,24 @@ function App() {
       }
     };
 
+    const handleMouseUp = () => {
+      isMouseDownOnCat = false;
+    };
+
+    // CRITICAL DRAG FIX: When native drag ends, the webview misses the 'mouseup' event.
+    // If the mouse shifts back without an active click button, repair the stuck state.
+    const handleWindowDragReleaseGuard = (e) => {
+      if (isMouseDownOnCat && e.buttons === 0) {
+        isMouseDownOnCat = false;
+      }
+    };
+
     canvas.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mouseup", handleMouseUp);
+    
+    // Global tracking to repair state desyncs
+    window.addEventListener("mousemove", handleWindowDragReleaseGuard);
+    window.addEventListener("mouseenter", handleWindowDragReleaseGuard);
 
     ctx.imageSmoothingEnabled = false;
 
@@ -509,6 +529,13 @@ function App() {
 
     const updateIgnore = async () => {
       if (!running) return;
+
+      // Safe Guard: Keep click-through disabled until they let go.
+      if (isMouseDownOnCat) {
+        setTimeout(updateIgnore, 32);
+        return;
+      }
+
       try {
         let isOpaque = false;
         if (localX >= 0 && localX < 125 && localY >= 0 && localY < 125) {
@@ -520,6 +547,14 @@ function App() {
           ).data;
           isOpaque = pixel[3] > 0;
         }
+        
+        // RACE CONDITION FIX: Double check if the user clicked *while* we were 
+        // awaiting the canvas pixel image data readout.
+        if (isMouseDownOnCat) {
+          setTimeout(updateIgnore, 32);
+          return;
+        }
+
         if (isOpaque && lastIgnore !== false) {
           await appWindow.setIgnoreCursorEvents(false);
           lastIgnore = false;
@@ -537,7 +572,6 @@ function App() {
       const dt = lastTime ? Math.min((timestamp - lastTime) / 16.67, 3) : 1;
       lastTime = timestamp;
 
-      // Calculate the tracking physics for the Idle state
       const targetHeadX = Math.max(-0.75, Math.min(0.75, (localX - 62.5) / 35));
       const targetHeadY = Math.max(0, Math.min(0.75, (localY - 62.5) / 35));
 
@@ -634,16 +668,7 @@ function App() {
         }
 
         ctx.fillStyle = "#000000";
-        for (const p of deferredPupils) {
-          ctx.fillRect(
-            offsetX + p.col * pixelSize + headRenderX + pupilRenderX,
-            offsetY + p.row * pixelSize + headRenderY + pupilRenderY,
-            pixelSize,
-            pixelSize,
-          );
-        }
         if (!isBlinkingRef.current) {
-          ctx.fillStyle = "#000000";
           for (const p of deferredPupils) {
             ctx.fillRect(
               offsetX + p.col * pixelSize + headRenderX + pupilRenderX,
@@ -666,6 +691,9 @@ function App() {
       running = false;
       if (rafId) cancelAnimationFrame(rafId);
       canvas.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("mousemove", handleWindowDragReleaseGuard);
+      window.removeEventListener("mouseenter", handleWindowDragReleaseGuard);
     };
   }, []);
 
