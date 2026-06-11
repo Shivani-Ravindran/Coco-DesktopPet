@@ -1,0 +1,57 @@
+name: 'Publish Cross-Platform Release'
+
+on:
+  push:
+    # Triggers the pipeline whenever you push a version tag (e.g., v0.1.0, v1.0.0)
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest' # Builds x64 & ARM64 Mac .dmg
+            args: '--target universal-apple-darwin'
+          - platform: 'windows-latest' # Builds Windows .msi & .exe
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm' # Automates npm package caching
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Targets both Intel & Apple Silicon on macOS runners
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
+      - name: Enable Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build and Publish App Bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: __VERSION__ # Syncs release tags automatically
+          releaseName: 'Coco v__VERSION__'
+          releaseBody: 'Grab your platform-specific installer below!'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
