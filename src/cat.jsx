@@ -478,8 +478,6 @@ function App() {
       isMouseDownOnCat = false;
     };
 
-    // CRITICAL DRAG FIX: When native drag ends, the webview misses the 'mouseup' event.
-    // If the mouse shifts back without an active click button, repair the stuck state.
     const handleWindowDragReleaseGuard = (e) => {
       if (isMouseDownOnCat && e.buttons === 0) {
         isMouseDownOnCat = false;
